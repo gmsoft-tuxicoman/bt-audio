@@ -4,7 +4,10 @@ import socket
 import dbus
 import dbus.service
 import dbus.mainloop.glib
-from gi.repository import GObject
+
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import GObject, Gst
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -95,10 +98,11 @@ class Adapter():
 
     def _interfaceAdded(self, path, interface):
         print("adapter _interfaceAdded " + path)
-        dev_name = path.split('/')[4]
+        spath = path.split('/')[4]
+        dev_name = spath
         if 'org.bluez.Device1' in interface:
             self.devices[dev_name] = Device(self.bus, path)
-        elif dev_name in self.devices:
+        elif dev_name in self.devices and len(spath) > 5:
             self.devices[dev_name]._interfaceAdded(path, interface)
         
     def _interfaceRemoved(self, path, interface):
@@ -205,6 +209,7 @@ class MediaTransport():
         print("New media transport " + path)
         self.bus = bus
         self.path = path
+        self.pipeline = None
 
     def __del__(self):
         print("Removed media transport " + self.path)
@@ -213,22 +218,43 @@ class MediaTransport():
         print("mediaTransport _propertiesChanged " + path)
 
         if 'State' in changed and changed['State'] == 'pending':
-            transport = dbus.Interface(self.bus.get_object("org.bluez", path), "org.bluez.MediaTransport1")
-            return
-            unixfd, mtu_read, mtu_write = transport.Acquire()
-            fd_num = unixfd.take()
-            print("Got fd " + str(fd_num) + " with read mtu " + str(mtu_read) + " and write mtu " + str(mtu_write))
-            s = socket.fromfd(fd_num, socket.AF_UNIX, socket.SOCK_RAW)
-            s.setblocking(1)
-            out = open("/tmp/test.raw", 'wb')
-            count = 0
-            while True:
-                data = s.recvmsg(mtu_read)
-    #            print(data)
-                out.write(data[0][13:])
-                count = len(data[0])
-                print("Got " + str(count) + " bytes")
-        
+            if self.pipeline:
+                return
+
+            self.pipeline = Gst.Pipeline.new("player")
+
+            gst_bus = self.pipeline.get_bus()
+            gst_bus.add_signal_watch()
+            gst_bus.connect("message", self._gst_on_message)
+
+            source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+            depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
+            parse = Gst.ElementFactory.make("sbcparse", "parser")
+            decoder = Gst.ElementFactory.make("sbcdec", "decoder")
+            sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+
+            self.pipeline.add(source)
+            self.pipeline.add(depay)
+            self.pipeline.add(parse)
+            self.pipeline.add(decoder)
+            self.pipeline.add(sink)
+
+            print(source.link(depay))
+            print(depay.link(parse))
+            print(parse.link(decoder))
+            print(decoder.link(sink))
+
+            source.set_property("transport", path)
+
+            self.pipeline.set_state(Gst.State.PLAYING)
+
+    def _gst_on_message(self, gst_bus, message):
+        t = message.type
+        if t == Gst.MessageType.ERROR:
+            err, debug = message.parse_error()
+            print("Error : %s " % err, debug)
+        else:
+            print(message.type, message.src)
 
 
 def find_adapters():
@@ -257,16 +283,11 @@ def main():
     adapt.mediaEndpointRegister()
 
 
-
+    Gst.init(None)
+    GObject.threads_init()
     mainloop = GObject.MainLoop()
     mainloop.run()
     return
-
-    # Setup the sig handler
-    #bus.add_signal_receiver(sig_device_properties_changed, dbus_interface='org.freedesktop.DBus.Properties', signal_name = "PropertiesChanged", arg0 = "org.bluez.Device1", path_keyword = "path")
-    #bus.add_signal_receiver(sig_transport_properties_changed, dbus_interface='org.freedesktop.DBus.Properties', signal_name = "PropertiesChanged", arg0 = "org.bluez.MediaTransport1", path_keyword = "path")
-    #bus.add_signal_receiver(sig_transport_properties_changed, dbus_interface='org.freedesktop.DBus.Properties', signal_name = "PropertiesChanged", arg0 = None, path_keyword = "path")
-
 
 
 if __name__ == '__main__':
