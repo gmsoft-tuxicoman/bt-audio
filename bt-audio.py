@@ -12,7 +12,8 @@ from gi.repository import GObject, Gst
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
 ADAPTER = 'hci0'
-A2DP_SINK_UUID = "0000110B-0000-1000-8000-00805F9B34FB"
+A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9B34fb"
+A2DP_SERVICE_UUID = "0000110d-0000-1000-8000-00805f9b34fb"
 SBC_CODEC = dbus.Byte(0x00)
 SBC_CAPABILITIES = dbus.Array([dbus.Byte(0xff), dbus.Byte(0xff), dbus.Byte(2), dbus.Byte(64)])
 SBC_CONFIGURATION = dbus.Array([dbus.Byte(0x21), dbus.Byte(0x15), dbus.Byte(2), dbus.Byte(32)])
@@ -42,20 +43,25 @@ class Bluez():
             if 'org.bluez.Adapter1' in obj:
                 adapt_name = obj_path.split('/')[3]
                 self.adapters[adapt_name] = Adapter(self.bus, obj_path)
+                self.adapters[adapt_name].agentRegister()
                
     def _interfaceAdded(self, path, interface):
         print("_interfaceAdded " + path + " | " + str(interface))
         adapt_name = path.split('/')[3]
         if 'org.bluez.Adapter1' in interface:
             self.adapters[adapt_name] = Adapter(self.bus, path)
+            self.adapters[adapt_name].agentRegister()
         elif adapt_name in self.adapters:
             self.adapters[adapt_name]._interfaceAdded(path, interface)
                 
     def _interfaceRemoved(self, path, interface):
         print("_interfaceRemoved " + path + " | " + str(interface))
-        adapt_name = path.split('/')[3]
+        spath = path.split('/')
+        if len(spath) < 4:
+            return
+        adapt_name = spath[3]
         if 'org.bluez.Adapter1' in interface:
-            del self.adapters[path]
+            del self.adapters[adapt_name]
         elif adapt_name in self.adapters:
             self.adapters[adapt_name]._interfaceRemoved(path, interface)
 
@@ -98,8 +104,8 @@ class Adapter():
 
     def _interfaceAdded(self, path, interface):
         print("adapter _interfaceAdded " + path)
-        spath = path.split('/')[4]
-        dev_name = spath
+        spath = path.split('/')
+        dev_name = spath[4]
         if 'org.bluez.Device1' in interface:
             self.devices[dev_name] = Device(self.bus, path)
         elif dev_name in self.devices and len(spath) > 5:
@@ -107,7 +113,10 @@ class Adapter():
         
     def _interfaceRemoved(self, path, interface):
         print("adapter _interfaceRemoved " + path)
-        dev_name = path.split('/')[4]
+        spath = path.split('/')
+        if len(spath) < 5:
+            return
+        dev_name = spath[4]
         if 'org.bluez.Device1' in interface:
             del self.devices[dev_name]
         elif dev_name in self.devices:
@@ -116,7 +125,6 @@ class Adapter():
     def _propertiesChanged(self, interface, changed, invalidated, path):
         print("adapter _propertiesChanged " + path)
         spath = path.split('/')
-
         if len(spath) >= 5:
             dev_name  = spath[4]
             if dev_name in self.devices:
@@ -141,7 +149,14 @@ class Adapter():
         media.RegisterEndpoint(media_path, properties)
         print("MediaEndpoint registered for " + self.path)
 
+    def agentRegister(self):
+        agent_path = '/test/agent_' + self.path.split('/')[3]
+        self.agent = Agent(self.bus, agent_path)
 
+        manager = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez"), "org.bluez.AgentManager1")
+        manager.RegisterAgent(agent_path, "NoInputNoOutput")
+
+        manager.RequestDefaultAgent(agent_path)
 
 class Device():
 
@@ -156,7 +171,10 @@ class Device():
 
     def _interfaceAdded(self, path, interface):
         print("device _interfaceAdded " + path)
-        obj_name = path.split('/')[5]
+        spath = path.split('/')
+        if len(spath) < 6:
+            return
+        obj_name = spath[5]
         if 'org.bluez.MediaTransport1' in interface:
             self.mediaTransports[obj_name] = MediaTransport(self.bus, path)
 
@@ -255,6 +273,18 @@ class MediaTransport():
             print("Error : %s " % err, debug)
         else:
             print(message.type, message.src)
+
+class Rejected(dbus.DBusException):
+    _dbus_error_name = "org.bluez.Error.Rejected"
+
+class Agent(dbus.service.Object):
+
+    @dbus.service.method('org.bluez.Agent1', in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid):
+        if (uuid == A2DP_SERVICE_UUID):
+            print("Authorized A2DP for device " + device)
+            return
+        raise Rejected("Service unauthorized")
 
 
 def find_adapters():
