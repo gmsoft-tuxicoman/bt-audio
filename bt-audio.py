@@ -249,18 +249,21 @@ class MediaTransport():
             depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
             parse = Gst.ElementFactory.make("sbcparse", "parser")
             decoder = Gst.ElementFactory.make("sbcdec", "decoder")
+            converter = Gst.ElementFactory.make("audioconvert", "converter")
             sink = Gst.ElementFactory.make("alsasink", "alsa-output")
 
             self.pipeline.add(source)
             self.pipeline.add(depay)
             self.pipeline.add(parse)
             self.pipeline.add(decoder)
+            self.pipeline.add(converter)
             self.pipeline.add(sink)
 
             print(source.link(depay))
             print(depay.link(parse))
             print(parse.link(decoder))
-            print(decoder.link(sink))
+            print(decoder.link(converter))
+            print(converter.link(sink))
 
             source.set_property("transport", path)
 
