@@ -9,9 +9,16 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
 
+import argparse
+
+argparser = argparse.ArgumentParser(description='Send bluetooth audio to alsa card')
+argparser.add_argument('--alsa-device', '-d', dest='alsadev', help='Alsa device')
+argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
+
+
+
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
-ADAPTER = 'hci0'
 A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9B34fb"
 A2DP_SERVICE_UUID = "0000110d-0000-1000-8000-00805f9b34fb"
 SBC_CODEC = dbus.Byte(0x00)
@@ -266,6 +273,8 @@ class MediaTransport():
             print(converter.link(sink))
 
             source.set_property("transport", path)
+            if args.alsadev:
+                sink.set_property("device", args.alsadev)
 
             self.pipeline.set_state(Gst.State.PLAYING)
 
@@ -304,11 +313,15 @@ def find_adapters():
 
 def main():
 
+    global args
+    args = argparser.parse_args()
+
     bluez = Bluez()
 
-    adapt = bluez.getAdapter(ADAPTER)
+    adapt = bluez.getAdapter(args.adapter)
 
     if not adapt:
+        print("Adapter " + args.adapter + " not found")
         return
 
     adapt.powerSet(True)
