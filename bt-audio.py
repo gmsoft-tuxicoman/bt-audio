@@ -14,7 +14,8 @@ import argparse
 argparser = argparse.ArgumentParser(description='Send bluetooth audio to alsa card')
 argparser.add_argument('--alsa-device', '-d', dest='alsadev', help='Alsa device')
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
-
+argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
+argparser.add_argument('--aac', '-A', dest='aac_enabled', help='Enable AAC codec support', default=False, action='store_true')
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -23,10 +24,6 @@ A2DP_SERVICE_UUID = "0000110d-0000-1000-8000-00805f9b34fb"
 SBC_CODEC = dbus.Byte(0x00)
 SBC_CAPABILITIES = dbus.Array([dbus.Byte(0xff), dbus.Byte(0xff), dbus.Byte(2), dbus.Byte(64)])
 SBC_CONFIGURATION = dbus.Array([dbus.Byte(0x21), dbus.Byte(0x15), dbus.Byte(2), dbus.Byte(32)])
-
-MP3_CODEC = dbus.Byte(0x01)
-MP3_CAPABILITIES = dbus.Array([dbus.Byte(0x3f), dbus.Byte(0x07), dbus.Byte(0xff), dbus.Byte(0xfe)])
-MP3_CONFIGURATION = dbus.Array([dbus.Byte(0x21), dbus.Byte(0x02), dbus.Byte(0x00), dbus.Byte(0x80)])
 
 AAC_CODEC = dbus.Byte(0x02)
 AAC_CAPABILITIES = dbus.Array([dbus.Byte(0xC0), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
@@ -426,7 +423,8 @@ def main():
     adapt.powerSet(True)
     adapt.discoverableSet(True)
     adapt.mediaEndpointRegisterSBC()
-    #adapt.mediaEndpointRegisterAAC()
+    if args.aac_enabled:
+        adapt.mediaEndpointRegisterAAC()
 
 
     Gst.init(None)
