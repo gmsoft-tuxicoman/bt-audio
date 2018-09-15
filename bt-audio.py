@@ -29,6 +29,11 @@ MP3_CODEC = dbus.Byte(0x01)
 MP3_CAPABILITIES = dbus.Array([dbus.Byte(0x3f), dbus.Byte(0x07), dbus.Byte(0xff), dbus.Byte(0xfe)])
 MP3_CONFIGURATION = dbus.Array([dbus.Byte(0x21), dbus.Byte(0x02), dbus.Byte(0x00), dbus.Byte(0x80)])
 
+AAC_CODEC = dbus.Byte(0x02)
+AAC_CAPABILITIES = dbus.Array([dbus.Byte(0xC0), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
+#AAC_CAPABILITIES = dbus.Array([dbus.Byte(0x80), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
+
+
 
 class Bluez():
     
@@ -67,7 +72,7 @@ class Bluez():
         if len(spath) < 4:
             return
         adapt_name = spath[3]
-        if 'org.bluez.Adapter1' in interface:
+        if 'rg.bluez.Adapter1' in interface:
             del self.adapters[adapt_name]
         elif adapt_name in self.adapters:
             self.adapters[adapt_name]._interfaceRemoved(path, interface)
@@ -148,13 +153,21 @@ class Adapter():
         print("Making adapter " + self.path + " discoverable")
         self.prop.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(status))
 
-    def mediaEndpointRegister(self):
+    def mediaEndpointRegisterSBC(self):
         media = dbus.Interface(self.bus.get_object("org.bluez", self.path), "org.bluez.Media1")
-        media_path = '/test/endpoint_' + self.path.split('/')[3]
-        self.mediaEndpoint = MediaEndpoint(self.bus, media_path)
+        media_path = '/test/endpoint_sbc_' + self.path.split('/')[3]
+        self.mediaEndpointSBC = MediaEndpoint(self.bus, media_path)
         properties = dbus.Dictionary({ "UUID" : A2DP_SINK_UUID, "Codec" : SBC_CODEC, "DelayReporting" : True, "Capabilities" : SBC_CAPABILITIES })
         media.RegisterEndpoint(media_path, properties)
-        print("MediaEndpoint registered for " + self.path)
+        print("MediaEndpoint SBC registered for " + self.path)
+
+    def mediaEndpointRegisterAAC(self):
+        media = dbus.Interface(self.bus.get_object("org.bluez", self.path), "org.bluez.Media1")
+        media_path = '/test/endpoint_aac_' + self.path.split('/')[3]
+        self.mediaEndpointAAC = MediaEndpoint(self.bus, media_path)
+        properties = dbus.Dictionary({ "UUID" : A2DP_SINK_UUID, "Codec" : AAC_CODEC, "DelayReporting" : True, "Capabilities" : AAC_CAPABILITIES })
+        media.RegisterEndpoint(media_path, properties)
+        print("MediaEndpoint AAC registered for " + self.path)
 
     def agentRegister(self):
         agent_path = '/test/agent_' + self.path.split('/')[3]
@@ -183,7 +196,13 @@ class Device():
             return
         obj_name = spath[5]
         if 'org.bluez.MediaTransport1' in interface:
-            self.mediaTransports[obj_name] = MediaTransport(self.bus, path)
+            mediaTransport1 = interface['org.bluez.MediaTransport1']
+            if mediaTransport1['Codec'] == SBC_CODEC:
+                self.mediaTransports[obj_name] = MediaTransportSBC(self.bus, path)
+            elif mediaTransport1['Codec'] == AAC_CODEC:
+                self.mediaTransports[obj_name] = MediaTransportAAC(self.bus, path)
+            else:
+                print("Unsupported codec : " + str(mediaTransport1['Codec']))
 
     def _interfaceRemoved(self, path, interface):
         print("device _interfaceRemoved " + path)
@@ -228,19 +247,19 @@ class MediaEndpoint(dbus.service.Object):
         print("Release")
 
 
-class MediaTransport():
+class MediaTransportSBC():
 
     def __init__(self, bus, path):
-        print("New media transport " + path)
+        print("New SBC media transport " + path)
         self.bus = bus
         self.path = path
         self.pipeline = None
 
     def __del__(self):
-        print("Removed media transport " + self.path)
+        print("Removed SBC media transport " + self.path)
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
-        print("mediaTransport _propertiesChanged " + path)
+        print("mediaTransportSBC _propertiesChanged " + path)
 
         if 'State' in changed and changed['State'] == 'pending':
             if self.pipeline:
@@ -253,6 +272,9 @@ class MediaTransport():
             gst_bus.connect("message", self._gst_on_message)
 
             source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+            jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
+            jitterbuffer.set_property("latency", 300)
+            jitterbuffer.set_property("drop-on-latency", "true")
             depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
             parse = Gst.ElementFactory.make("sbcparse", "parser")
             decoder = Gst.ElementFactory.make("sbcdec", "decoder")
@@ -260,13 +282,15 @@ class MediaTransport():
             sink = Gst.ElementFactory.make("alsasink", "alsa-output")
 
             self.pipeline.add(source)
+            self.pipeline.add(jitterbuffer)
             self.pipeline.add(depay)
             self.pipeline.add(parse)
             self.pipeline.add(decoder)
             self.pipeline.add(converter)
             self.pipeline.add(sink)
 
-            print(source.link(depay))
+            print(source.link(jitterbuffer))
+            print(jitterbuffer.link(depay))
             print(depay.link(parse))
             print(parse.link(decoder))
             print(decoder.link(converter))
@@ -282,6 +306,72 @@ class MediaTransport():
         t = message.type
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
+            print("Error : %s " % err, debug)
+        elif t == Gst.MessageType.WARNING:
+            err, debug = message.parse_warning()
+            print("Error : %s " % err, debug)
+        else:
+            print(message.type, message.src)
+
+class MediaTransportAAC():
+
+    def __init__(self, bus, path):
+        print("New AAC media transport " + path)
+        self.bus = bus
+        self.path = path
+        self.pipeline = None
+
+    def __del__(self):
+        print("Removed AAC media transport " + self.path)
+
+    def _propertiesChanged(self, interface, changed, invalidated, path):
+        print("mediaTransportAAC _propertiesChanged " + path)
+
+        if 'State' in changed and changed['State'] == 'pending':
+            if self.pipeline:
+                return
+
+            self.pipeline = Gst.Pipeline.new("player")
+
+            gst_bus = self.pipeline.get_bus()
+            gst_bus.add_signal_watch()
+            gst_bus.connect("message", self._gst_on_message)
+
+            source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+            jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
+            jitterbuffer.set_property("latency", 300)
+            jitterbuffer.set_property("drop-on-latency", "true")
+            depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
+            decoder = Gst.ElementFactory.make("faad", "decoder")
+            converter = Gst.ElementFactory.make("audioconvert", "converter")
+            sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+
+            self.pipeline.add(source)
+            self.pipeline.add(jitterbuffer)
+            self.pipeline.add(depay)
+            self.pipeline.add(decoder)
+            self.pipeline.add(converter)
+            self.pipeline.add(sink)
+
+            print(source.link(jitterbuffer))
+            print(jitterbuffer.link(depay))
+            print(depay.link(decoder))
+            print(decoder.link(converter))
+            print(converter.link(sink))
+
+            source.set_property("transport", path)
+            if args.alsadev:
+                sink.set_property("device", args.alsadev)
+
+            self.pipeline.set_state(Gst.State.PLAYING)
+
+    def _gst_on_message(self, gst_bus, message):
+        t = message.type
+        if t == Gst.MessageType.ERROR:
+            err, debug = message.parse_error()
+            print("Error : %s " % err, debug)
+        elif t == Gst.MessageType.WARNING:
+            err, debug = message.parse_warning()
             print("Error : %s " % err, debug)
         else:
             print(message.type, message.src)
@@ -326,7 +416,8 @@ def main():
 
     adapt.powerSet(True)
     adapt.discoverableSet(True)
-    adapt.mediaEndpointRegister()
+    adapt.mediaEndpointRegisterSBC()
+    #adapt.mediaEndpointRegisterAAC()
 
 
     Gst.init(None)
