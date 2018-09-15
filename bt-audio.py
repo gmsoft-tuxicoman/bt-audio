@@ -16,7 +16,6 @@ argparser.add_argument('--alsa-device', '-d', dest='alsadev', help='Alsa device'
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
 
 
-
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
 A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9B34fb"
@@ -305,6 +304,8 @@ class MediaTransportSBC(MediaTransport):
 
     def initPipeline(self):
 
+        global args
+
         self.pipeline = Gst.Pipeline.new("player")
 
         gst_bus = self.pipeline.get_bus()
@@ -313,7 +314,7 @@ class MediaTransportSBC(MediaTransport):
 
         source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
         jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
-        jitterbuffer.set_property("latency", 300)
+        jitterbuffer.set_property("latency", args.buff_len)
         jitterbuffer.set_property("drop-on-latency", "true")
         depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
         parse = Gst.ElementFactory.make("sbcparse", "parser")
@@ -347,6 +348,8 @@ class MediaTransportSBC(MediaTransport):
 class MediaTransportAAC(MediaTransport):
 
     def initPipeline(self):
+        global args
+
         self.pipeline = Gst.Pipeline.new("player")
 
         gst_bus = self.pipeline.get_bus()
@@ -355,7 +358,7 @@ class MediaTransportAAC(MediaTransport):
 
         source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
         jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
-        jitterbuffer.set_property("latency", 300)
+        jitterbuffer.set_property("latency", args.buff_len)
         jitterbuffer.set_property("drop-on-latency", "true")
         depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
         decoder = Gst.ElementFactory.make("faad", "decoder")
