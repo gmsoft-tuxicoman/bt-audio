@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import socket
 import dbus
@@ -208,6 +208,8 @@ class Device():
         print("device _interfaceRemoved " + path)
         obj_name = path.split('/')[5]
         if 'org.bluez.MediaTransport1' in interface and obj_name in self.mediaTransports:
+            self.mediaTransports[obj_name]._interfaceRemoved(path, interface)
+            print("Media transport removed")
             del self.mediaTransports[obj_name]
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
@@ -246,65 +248,50 @@ class MediaEndpoint(dbus.service.Object):
     def Release(self):
         print("Release")
 
-
-class MediaTransportSBC():
+class MediaTransport():
 
     def __init__(self, bus, path):
-        print("New SBC media transport " + path)
         self.bus = bus
         self.path = path
         self.pipeline = None
+        print("New MediaTransport")
 
-    def __del__(self):
-        print("Removed SBC media transport " + self.path)
+    def __del__(self, bus, path):
+        if self.pipeline:
+            print("Destroying pipeline")
+            del self.pipline
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
         print("mediaTransportSBC _propertiesChanged " + path)
 
-        if 'State' in changed and changed['State'] == 'pending':
-            if self.pipeline:
-                return
+        if not 'State' in changed:
+            return
 
-            self.pipeline = Gst.Pipeline.new("player")
-
-            gst_bus = self.pipeline.get_bus()
-            gst_bus.add_signal_watch()
-            gst_bus.connect("message", self._gst_on_message)
-
-            source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
-            jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
-            jitterbuffer.set_property("latency", 300)
-            jitterbuffer.set_property("drop-on-latency", "true")
-            depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
-            parse = Gst.ElementFactory.make("sbcparse", "parser")
-            decoder = Gst.ElementFactory.make("sbcdec", "decoder")
-            converter = Gst.ElementFactory.make("audioconvert", "converter")
-            sink = Gst.ElementFactory.make("alsasink", "alsa-output")
-
-            self.pipeline.add(source)
-            self.pipeline.add(jitterbuffer)
-            self.pipeline.add(depay)
-            self.pipeline.add(parse)
-            self.pipeline.add(decoder)
-            self.pipeline.add(converter)
-            self.pipeline.add(sink)
-
-            print(source.link(jitterbuffer))
-            print(jitterbuffer.link(depay))
-            print(depay.link(parse))
-            print(parse.link(decoder))
-            print(decoder.link(converter))
-            print(converter.link(sink))
-
-            source.set_property("transport", path)
-            if args.alsadev:
-                sink.set_property("device", args.alsadev)
+        newState = changed['State']
+        if newState == 'pending':
+            if not self.pipeline:
+                self.initPipeline()
 
             self.pipeline.set_state(Gst.State.PLAYING)
+            print("Playback started !")
+
+        elif newState == 'idle':
+            if not self.pipeline:
+                return
+            self.pipeline.set_state(Gst.State.NULL)
+            print("Playback stopped !")
+
+
+    def _interfaceRemoved(self, path, interface):
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
 
     def _gst_on_message(self, gst_bus, message):
         t = message.type
-        if t == Gst.MessageType.ERROR:
+        if t == Gst.MessageType.EOS:
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.NULL)
+        elif t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
             print("Error : %s " % err, debug)
         elif t == Gst.MessageType.WARNING:
@@ -313,68 +300,87 @@ class MediaTransportSBC():
         else:
             print(message.type, message.src)
 
-class MediaTransportAAC():
+class MediaTransportSBC(MediaTransport):
 
-    def __init__(self, bus, path):
-        print("New AAC media transport " + path)
-        self.bus = bus
-        self.path = path
-        self.pipeline = None
 
-    def __del__(self):
-        print("Removed AAC media transport " + self.path)
+    def initPipeline(self):
 
-    def _propertiesChanged(self, interface, changed, invalidated, path):
-        print("mediaTransportAAC _propertiesChanged " + path)
+        self.pipeline = Gst.Pipeline.new("player")
 
-        if 'State' in changed and changed['State'] == 'pending':
-            if self.pipeline:
-                return
+        gst_bus = self.pipeline.get_bus()
+        gst_bus.add_signal_watch()
+        gst_bus.connect("message", self._gst_on_message)
 
-            self.pipeline = Gst.Pipeline.new("player")
+        source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+        jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
+        jitterbuffer.set_property("latency", 300)
+        jitterbuffer.set_property("drop-on-latency", "true")
+        depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
+        parse = Gst.ElementFactory.make("sbcparse", "parser")
+        decoder = Gst.ElementFactory.make("sbcdec", "decoder")
+        converter = Gst.ElementFactory.make("audioconvert", "converter")
+        sink = Gst.ElementFactory.make("alsasink", "alsa-output")
 
-            gst_bus = self.pipeline.get_bus()
-            gst_bus.add_signal_watch()
-            gst_bus.connect("message", self._gst_on_message)
+        self.pipeline.add(source)
+        self.pipeline.add(jitterbuffer)
+        self.pipeline.add(depay)
+        self.pipeline.add(parse)
+        self.pipeline.add(decoder)
+        self.pipeline.add(converter)
+        self.pipeline.add(sink)
 
-            source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
-            jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
-            jitterbuffer.set_property("latency", 300)
-            jitterbuffer.set_property("drop-on-latency", "true")
-            depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
-            decoder = Gst.ElementFactory.make("faad", "decoder")
-            converter = Gst.ElementFactory.make("audioconvert", "converter")
-            sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+        print(source.link(jitterbuffer))
+        print(jitterbuffer.link(depay))
+        print(depay.link(parse))
+        print(parse.link(decoder))
+        print(decoder.link(converter))
+        print(converter.link(sink))
 
-            self.pipeline.add(source)
-            self.pipeline.add(jitterbuffer)
-            self.pipeline.add(depay)
-            self.pipeline.add(decoder)
-            self.pipeline.add(converter)
-            self.pipeline.add(sink)
+        source.set_property("transport", self.path)
+        if args.alsadev:
+            sink.set_property("device", args.alsadev)
 
-            print(source.link(jitterbuffer))
-            print(jitterbuffer.link(depay))
-            print(depay.link(decoder))
-            print(decoder.link(converter))
-            print(converter.link(sink))
+        print("Created new SBC pipeline")
 
-            source.set_property("transport", path)
-            if args.alsadev:
-                sink.set_property("device", args.alsadev)
 
-            self.pipeline.set_state(Gst.State.PLAYING)
 
-    def _gst_on_message(self, gst_bus, message):
-        t = message.type
-        if t == Gst.MessageType.ERROR:
-            err, debug = message.parse_error()
-            print("Error : %s " % err, debug)
-        elif t == Gst.MessageType.WARNING:
-            err, debug = message.parse_warning()
-            print("Error : %s " % err, debug)
-        else:
-            print(message.type, message.src)
+class MediaTransportAAC(MediaTransport):
+
+    def initPipeline(self):
+        self.pipeline = Gst.Pipeline.new("player")
+
+        gst_bus = self.pipeline.get_bus()
+        gst_bus.add_signal_watch()
+        gst_bus.connect("message", self._gst_on_message)
+
+        source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+        jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
+        jitterbuffer.set_property("latency", 300)
+        jitterbuffer.set_property("drop-on-latency", "true")
+        depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
+        decoder = Gst.ElementFactory.make("faad", "decoder")
+        converter = Gst.ElementFactory.make("audioconvert", "converter")
+        sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+
+        self.pipeline.add(source)
+        self.pipeline.add(jitterbuffer)
+        self.pipeline.add(depay)
+        self.pipeline.add(decoder)
+        self.pipeline.add(converter)
+        self.pipeline.add(sink)
+
+        print(source.link(jitterbuffer))
+        print(jitterbuffer.link(depay))
+        print(depay.link(decoder))
+        print(decoder.link(converter))
+        print(converter.link(sink))
+
+        source.set_property("transport", self.path)
+        if args.alsadev:
+            sink.set_property("device", args.alsadev)
+
+        print("Created new AAC pipeline")
+
 
 class Rejected(dbus.DBusException):
     _dbus_error_name = "org.bluez.Error.Rejected"
