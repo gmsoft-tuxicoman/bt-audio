@@ -6,8 +6,8 @@ It allows your devices (phone, tablet, etc) to connect without authentication to
 ## Requirements
 * Bluez 5.x
 * Gstreamer
-..* bluez plugin (avdtpsrc)
-..* SBC codec (rtpsbcdepay, sbcparse, sbcdec)
+  * bluez plugin (avdtpsrc)
+  * SBC codec (rtpsbcdepay, sbcparse, sbcdec)
 
 
 ## Bluez configuration
