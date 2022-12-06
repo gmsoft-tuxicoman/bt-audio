@@ -252,7 +252,7 @@ class MediaTransport():
         self.pipeline = None
         print("New MediaTransport")
 
-    def __del__(self, bus, path):
+    def __del__(self):
         if self.pipeline:
             print("Destroying pipeline")
             del self.pipline
