@@ -4,6 +4,7 @@ import socket
 import dbus
 import dbus.service
 import dbus.mainloop.glib
+import logging
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -12,10 +13,11 @@ from gi.repository import GObject, Gst
 import argparse
 
 argparser = argparse.ArgumentParser(description='Send bluetooth audio to alsa card')
-argparser.add_argument('--alsa-device', '-d', dest='alsadev', help='Alsa device')
+argparser.add_argument('--alsa-device', '-D', dest='alsadev', help='Alsa device')
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
 argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
 argparser.add_argument('--aac', '-A', dest='aac_enabled', help='Enable AAC codec support', default=False, action='store_true')
+argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -38,6 +40,8 @@ class Bluez():
         self.bus = dbus.SystemBus()
         self.adapters = {}
 
+        self.logger = logging.getLogger("Bluez")
+
 
         self.bus.add_signal_receiver(self._interfaceAdded, dbus_interface='org.freedesktop.DBus.ObjectManager', signal_name = "InterfacesAdded")
         self.bus.add_signal_receiver(self._interfaceRemoved, dbus_interface='org.freedesktop.DBus.ObjectManager', signal_name = "InterfacesRemoved")
@@ -54,7 +58,7 @@ class Bluez():
                 self.adapters[adapt_name].agentRegister()
                
     def _interfaceAdded(self, path, interface):
-        print("_interfaceAdded " + path + " | " + str(interface))
+        self.logger.debug(path + " | " + str(interface))
         adapt_name = path.split('/')[3]
         if 'org.bluez.Adapter1' in interface:
             self.adapters[adapt_name] = Adapter(self.bus, path)
@@ -63,7 +67,7 @@ class Bluez():
             self.adapters[adapt_name]._interfaceAdded(path, interface)
                 
     def _interfaceRemoved(self, path, interface):
-        print("_interfaceRemoved " + path + " | " + str(interface))
+        self.logger.debug(path + " | " + str(interface))
         spath = path.split('/')
         if len(spath) < 4:
             return
@@ -77,7 +81,7 @@ class Bluez():
         if not path.startswith("/org/bluez/"):
             return
 
-        print("_propertiesChanged " + path + " | " + str(interface) + " | " + str(changed) + " | " + str(invalidated))
+        self.logger.debug(path + " | " + str(interface) + " | " + str(changed) + " | " + str(invalidated))
 
         adapt_name = path.split('/')[3]
         if adapt_name in self.adapters:
@@ -93,7 +97,10 @@ class Adapter():
 
     def __init__(self, bus, path):
 
-        print("New adapter " + path)
+
+        self.logger = logging.getLogger("Adapter")
+
+        self.logger.info("New adapter " + path)
         self.bus = bus
         self.path = path
         self.prop = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
@@ -108,10 +115,10 @@ class Adapter():
                 self.devices[dev_name] = Device(self.bus, obj_path)
 
     def __del__(self):
-        print("Removed adapter " + self.path)
+        self.logger.info("Removed adapter " + self.path)
 
     def _interfaceAdded(self, path, interface):
-        print("adapter _interfaceAdded " + path)
+        self.logger.debug(path)
         spath = path.split('/')
         dev_name = spath[4]
         if 'org.bluez.Device1' in interface:
@@ -120,7 +127,7 @@ class Adapter():
             self.devices[dev_name]._interfaceAdded(path, interface)
         
     def _interfaceRemoved(self, path, interface):
-        print("adapter _interfaceRemoved " + path)
+        self.logger.debug(path)
         spath = path.split('/')
         if len(spath) < 5:
             return
@@ -131,7 +138,7 @@ class Adapter():
             self.devices[dev_name]._interfaceRemoved(path, interface)
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
-        print("adapter _propertiesChanged " + path)
+        self.logger.debug(path)
         spath = path.split('/')
         if len(spath) >= 5:
             dev_name  = spath[4]
@@ -142,11 +149,11 @@ class Adapter():
         # Handle out property change here
         
     def powerSet(self, status):
-        print("Turning on adapter " + self.path)
+        self.logger.info("Turning on adapter " + self.path)
         self.prop.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(status))
 
     def discoverableSet(self, status):
-        print("Making adapter " + self.path + " discoverable")
+        self.logger.info("Making adapter " + self.path + " discoverable")
         self.prop.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(status))
 
     def mediaEndpointRegisterSBC(self):
@@ -155,7 +162,7 @@ class Adapter():
         self.mediaEndpointSBC = MediaEndpoint(self.bus, media_path)
         properties = dbus.Dictionary({ "UUID" : A2DP_SINK_UUID, "Codec" : SBC_CODEC, "DelayReporting" : True, "Capabilities" : SBC_CAPABILITIES })
         media.RegisterEndpoint(media_path, properties)
-        print("MediaEndpoint SBC registered for " + self.path)
+        self.logger.info("MediaEndpoint SBC registered for " + self.path)
 
     def mediaEndpointRegisterAAC(self):
         media = dbus.Interface(self.bus.get_object("org.bluez", self.path), "org.bluez.Media1")
@@ -163,7 +170,7 @@ class Adapter():
         self.mediaEndpointAAC = MediaEndpoint(self.bus, media_path)
         properties = dbus.Dictionary({ "UUID" : A2DP_SINK_UUID, "Codec" : AAC_CODEC, "DelayReporting" : True, "Capabilities" : AAC_CAPABILITIES })
         media.RegisterEndpoint(media_path, properties)
-        print("MediaEndpoint AAC registered for " + self.path)
+        self.logger.info("MediaEndpoint AAC registered for " + self.path)
 
     def agentRegister(self):
         agent_path = '/test/agent_' + self.path.split('/')[3]
@@ -177,16 +184,17 @@ class Adapter():
 class Device():
 
     def __init__(self, bus, path):
-        print("New device " + path)
+        self.logger = logging.getLogger("Device")
+        self.logger.info("New device " + path)
         self.bus = bus
         self.path = path
         self.mediaTransports = {}
 
     def __del__(self):
-        print("Removed device " + self.path)
+        self.logger.info("Removed device " + self.path)
 
     def _interfaceAdded(self, path, interface):
-        print("device _interfaceAdded " + path)
+        self.logger.debug(path)
         spath = path.split('/')
         if len(spath) < 6:
             return
@@ -198,18 +206,17 @@ class Device():
             elif mediaTransport1['Codec'] == AAC_CODEC:
                 self.mediaTransports[obj_name] = MediaTransportAAC(self.bus, path)
             else:
-                print("Unsupported codec : " + str(mediaTransport1['Codec']))
+                self.logger.warn("Unsupported codec : " + str(mediaTransport1['Codec']))
 
     def _interfaceRemoved(self, path, interface):
-        print("device _interfaceRemoved " + path)
+        self.logger.debug(path)
         obj_name = path.split('/')[5]
         if 'org.bluez.MediaTransport1' in interface and obj_name in self.mediaTransports:
             self.mediaTransports[obj_name]._interfaceRemoved(path, interface)
-            print("Media transport removed")
             del self.mediaTransports[obj_name]
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
-        print("device _propertiesChanged " + path)
+        self.logger.debug(path)
         spath = path.split('/')
 
         if len(spath) >= 6:
@@ -226,23 +233,24 @@ class MediaEndpoint(dbus.service.Object):
 
     @dbus.service.method("org.bluez.MediaEndpoint1", in_signature="ay", out_signature="ay")
     def SelectConfiguration(self, caps):
-        print("SelectConfiguration (%s)" % (caps))
+        if args.debug:
+            print("MediaEndpoint | SelectConfiguration (%s)" % (caps))
         return self.configuration
-
 
     @dbus.service.method("org.bluez.MediaEndpoint1", in_signature="oay", out_signature="")
     def SetConfiguration(self, transport, config):
-        print("SetConfiguration (%s, %s)" % (transport, config))
-        return
+        if args.debug:
+            print("MediaEndpoint | SetConfiguration (%s, %s)" % (transport, config))
 
     @dbus.service.method("org.bluez.MediaEndpoint1", in_signature="o", out_signature="")
     def ClearConfiguration(self, transport):
-        print("ClearConfiguration (%s)" % (transport))
-
+        if args.debug:
+            print("MediaEndpoint | ClearConfiguration (%s)" % (transport))
 
     @dbus.service.method("org.bluez.MediaEndpoint1", in_signature="", out_signature="")
     def Release(self):
-        print("Release")
+        if args.debug:
+            print("MediaEndpoint | Release")
 
 class MediaTransport():
 
@@ -250,15 +258,16 @@ class MediaTransport():
         self.bus = bus
         self.path = path
         self.pipeline = None
-        print("New MediaTransport")
+        self.logger = logging.getLogger("MediaTransport")
+        self.logger.info("New MediaTransport")
 
     def __del__(self):
         if self.pipeline:
-            print("Destroying pipeline")
+            self.logger.debug("Destroying pipeline")
             del self.pipline
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
-        print("mediaTransportSBC _propertiesChanged " + path)
+        self.logger.debug(path)
 
         if not 'State' in changed:
             return
@@ -269,13 +278,13 @@ class MediaTransport():
                 self.initPipeline()
 
             self.pipeline.set_state(Gst.State.PLAYING)
-            print("Playback started !")
+            self.logger.info("Playback started !")
 
         elif newState == 'idle':
             if not self.pipeline:
                 return
             self.pipeline.set_state(Gst.State.NULL)
-            print("Playback stopped !")
+            self.logger.info("Playback stopped !")
 
 
     def _interfaceRemoved(self, path, interface):
@@ -289,12 +298,12 @@ class MediaTransport():
                 self.pipeline.set_state(Gst.State.NULL)
         elif t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            print("Error : %s " % err, debug)
+            self.logger.error(err + " " + debug)
         elif t == Gst.MessageType.WARNING:
             err, debug = message.parse_warning()
-            print("Error : %s " % err, debug)
+            self.logger.warn(err + " " + debug)
         else:
-            print(message.type, message.src)
+            self.logger.info(message.type + " " + message.src)
 
 class MediaTransportSBC(MediaTransport):
 
@@ -326,13 +335,6 @@ class MediaTransportSBC(MediaTransport):
         self.pipeline.add(decoder)
         self.pipeline.add(converter)
         self.pipeline.add(sink)
-
-        print(source.link(jitterbuffer))
-        print(jitterbuffer.link(depay))
-        print(depay.link(parse))
-        print(parse.link(decoder))
-        print(decoder.link(converter))
-        print(converter.link(sink))
 
         source.set_property("transport", self.path)
         if args.alsadev:
@@ -368,12 +370,6 @@ class MediaTransportAAC(MediaTransport):
         self.pipeline.add(decoder)
         self.pipeline.add(converter)
         self.pipeline.add(sink)
-
-        print(source.link(jitterbuffer))
-        print(jitterbuffer.link(depay))
-        print(depay.link(decoder))
-        print(decoder.link(converter))
-        print(converter.link(sink))
 
         source.set_property("transport", self.path)
         if args.alsadev:
@@ -411,6 +407,11 @@ def main():
 
     global args
     args = argparser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(funcName)s:%(message)s")
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     bluez = Bluez()
 
