@@ -8,7 +8,7 @@ import logging
 
 import gi
 gi.require_version('Gst', '1.0')
-from gi.repository import GObject, Gst
+from gi.repository import GLib, GObject, Gst
 
 import argparse
 
@@ -403,6 +403,22 @@ def find_adapters():
 
     return adapts
 
+def sanity_checks():
+
+    if not hasattr(Gst._overrides_module, "ElementFactory"):
+        raise Exception("gst=python module does not seem to be installed")
+
+    pipeline = Gst.Pipeline.new("sanity_check")
+    if not pipeline:
+        raise Exception("Cannot create Gstreamer pipeline")
+
+    gst_plugins = [ "avdtpsrc", "rtpjitterbuffer", "rtpsbcdepay", "sbcparse", "sbcdec", "audioconvert", "alsasink" ]
+
+    for plugin in gst_plugins:
+        if not Gst.ElementFactory.find(plugin):
+            raise Exception("Gstreamer plugin " + plugin + " not found !")
+
+
 def main():
 
     global args
@@ -413,24 +429,30 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    bluez = Bluez()
+    # Init Gstreamer and check we have all the required plugins
+    Gst.init(None)
+    sanity_checks()
 
+    # Init bluetooth stuff
+    bluez = Bluez()
     adapt = bluez.getAdapter(args.adapter)
 
     if not adapt:
         print("Adapter " + args.adapter + " not found")
         return
 
+    # Setup our BT adapter
     adapt.powerSet(True)
     adapt.discoverableSet(True)
     adapt.mediaEndpointRegisterSBC()
+
+
     if args.aac_enabled:
         adapt.mediaEndpointRegisterAAC()
 
 
-    Gst.init(None)
-    GObject.threads_init()
-    mainloop = GObject.MainLoop()
+    # Glib main loop
+    mainloop = GLib.MainLoop()
     mainloop.run()
     return
 
