@@ -265,6 +265,7 @@ class MediaTransport():
         if self.pipeline:
             self.logger.debug("Destroying pipeline")
             del self.pipline
+        self.logger.info("MediaTransport Removed")
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
         self.logger.debug(path)
@@ -298,15 +299,19 @@ class MediaTransport():
                 self.pipeline.set_state(Gst.State.NULL)
         elif t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            self.logger.error(err + " " + debug)
+            self.logger.error(str(err) + " " + str(debug))
         elif t == Gst.MessageType.WARNING:
             err, debug = message.parse_warning()
-            self.logger.warn(err + " " + debug)
+            self.logger.warn(str(err) + " " + str(debug))
         else:
-            self.logger.info(message.type + " " + message.src)
+            self.logger.debug(str(message.type) + " " + str(message.src))
 
 class MediaTransportSBC(MediaTransport):
 
+
+    def __init__(self, bus, path):
+        super().__init__(bus, path)
+        self.logger = logging.getLogger("MediaTransportSBC")
 
     def initPipeline(self):
 
@@ -319,14 +324,23 @@ class MediaTransportSBC(MediaTransport):
         gst_bus.connect("message", self._gst_on_message)
 
         source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+        source.set_property("transport", self.path)
+
         jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
         jitterbuffer.set_property("latency", args.buff_len)
         jitterbuffer.set_property("drop-on-latency", "true")
+
         depay = Gst.ElementFactory.make("rtpsbcdepay", "depayloader")
+
         parse = Gst.ElementFactory.make("sbcparse", "parser")
+
         decoder = Gst.ElementFactory.make("sbcdec", "decoder")
+
         converter = Gst.ElementFactory.make("audioconvert", "converter")
+
         sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+        if args.alsadev:
+            sink.set_property("device", args.alsadev)
 
         self.pipeline.add(source)
         self.pipeline.add(jitterbuffer)
@@ -336,15 +350,28 @@ class MediaTransportSBC(MediaTransport):
         self.pipeline.add(converter)
         self.pipeline.add(sink)
 
-        source.set_property("transport", self.path)
-        if args.alsadev:
-            sink.set_property("device", args.alsadev)
 
-        print("Created new SBC pipeline")
+        link = True
+        link &= source.link(jitterbuffer)
+        link &= jitterbuffer.link(depay)
+        link &= depay.link(parse)
+        link &= parse.link(decoder)
+        link &= decoder.link(converter)
+        link &= converter.link(sink)
+
+        if not link:
+            self.logger.crit("Failed to link the pipeline")
+            return
+
+        self.logger.debug("Created new SBC pipeline")
 
 
 
 class MediaTransportAAC(MediaTransport):
+
+    def __init__(self, bus, path):
+        super().__init__(bus, path)
+        self.logger = logging.getLogger("MediaTransportAAC")
 
     def initPipeline(self):
         global args
@@ -356,13 +383,21 @@ class MediaTransportAAC(MediaTransport):
         gst_bus.connect("message", self._gst_on_message)
 
         source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
+        source.set_property("transport", self.path)
+
         jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
         jitterbuffer.set_property("latency", args.buff_len)
         jitterbuffer.set_property("drop-on-latency", "true")
+
         depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
+
         decoder = Gst.ElementFactory.make("faad", "decoder")
+
         converter = Gst.ElementFactory.make("audioconvert", "converter")
+
         sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+        if args.alsadev:
+            sink.set_property("device", args.alsadev)
 
         self.pipeline.add(source)
         self.pipeline.add(jitterbuffer)
@@ -371,11 +406,19 @@ class MediaTransportAAC(MediaTransport):
         self.pipeline.add(converter)
         self.pipeline.add(sink)
 
-        source.set_property("transport", self.path)
-        if args.alsadev:
-            sink.set_property("device", args.alsadev)
+        link = True
+        link &= source.link(jitterbuffer)
+        link &= jitterbuffer.link(depay)
+        link &= depay.link(decoder)
+        link &= decoder.link(converter)
+        link &= converter.link(sink)
 
-        print("Created new AAC pipeline")
+        if not link:
+            self.logger.crit("Failed to link the pipeline")
+            return
+
+
+        self.logger.debug("Created new AAC pipeline")
 
 
 class Rejected(dbus.DBusException):
@@ -385,10 +428,8 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method('org.bluez.Agent1', in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
-        if (uuid == A2DP_SERVICE_UUID):
-            print("Authorized A2DP for device " + device)
-            return
-        raise Rejected("Service unauthorized")
+        if (uuid != A2DP_SERVICE_UUID):
+            raise Rejected("Service unauthorized")
 
 
 def find_adapters():
