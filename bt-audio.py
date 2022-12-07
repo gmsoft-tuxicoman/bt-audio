@@ -185,7 +185,6 @@ class Device():
 
     def __init__(self, bus, path):
         self.logger = logging.getLogger("Device")
-        self.logger.info("New device " + path)
         self.bus = bus
         self.path = path
         self.mediaTransports = {}
@@ -211,6 +210,7 @@ class Device():
     def _interfaceRemoved(self, path, interface):
         self.logger.debug(path)
         obj_name = path.split('/')[5]
+        self.logger.debug("Removing media transport " + obj_name)
         if 'org.bluez.MediaTransport1' in interface and obj_name in self.mediaTransports:
             self.mediaTransports[obj_name]._interfaceRemoved(path, interface)
             del self.mediaTransports[obj_name]
@@ -218,6 +218,12 @@ class Device():
     def _propertiesChanged(self, interface, changed, invalidated, path):
         self.logger.debug(path)
         spath = path.split('/')
+
+        if len(spath) == 5 and "Connected" in changed and "org.bluez.Device1" in interface:
+            if changed["Connected"]:
+                self.logger.info("Device " + spath[4] + " connected")
+            else:
+                self.logger.info("Device " + spath[4] + " disconnected")
 
         if len(spath) >= 6:
             obj_name = spath[5]
@@ -259,13 +265,6 @@ class MediaTransport():
         self.path = path
         self.pipeline = None
         self.logger = logging.getLogger("MediaTransport")
-        self.logger.info("New MediaTransport")
-
-    def __del__(self):
-        if self.pipeline:
-            self.logger.debug("Destroying pipeline")
-            del self.pipline
-        self.logger.info("MediaTransport Removed")
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
         self.logger.debug(path)
