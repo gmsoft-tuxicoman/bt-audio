@@ -301,7 +301,7 @@ class MediaTransport():
             self.logger.error(str(err) + " " + str(debug))
         elif t == Gst.MessageType.WARNING:
             err, debug = message.parse_warning()
-            self.logger.warn(str(err) + " " + str(debug))
+            self.logger.warning(str(err) + " " + str(debug))
         else:
             self.logger.debug(str(message.type) + " " + str(message.src))
 
@@ -359,7 +359,7 @@ class MediaTransportSBC(MediaTransport):
         link &= converter.link(sink)
 
         if not link:
-            self.logger.crit("Failed to link the pipeline")
+            self.logger.critical("Failed to link the pipeline")
             return
 
         self.logger.debug("Created new SBC pipeline")
