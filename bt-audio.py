@@ -431,18 +431,6 @@ class Agent(dbus.service.Object):
             raise Rejected("Service unauthorized")
 
 
-def find_adapters():
-
-    adapts = {}
-    objs = obj_mgr.GetManagedObjects()
-    for obj_path in objs:
-    
-        obj = objs[obj_path]
-        if 'org.bluez.Adapter1' in obj:
-            adapts[obj_path] = obj['org.bluez.Adapter1']
-
-    return adapts
-
 def sanity_checks():
 
     if not hasattr(Gst._overrides_module, "ElementFactory"):
