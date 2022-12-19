@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-import socket
 import dbus
 import dbus.service
 import dbus.mainloop.glib
@@ -8,7 +7,7 @@ import logging
 
 import gi
 gi.require_version('Gst', '1.0')
-from gi.repository import GLib, GObject, Gst
+from gi.repository import GLib, Gst
 
 import argparse
 
@@ -25,7 +24,6 @@ A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9B34fb"
 A2DP_SERVICE_UUID = "0000110d-0000-1000-8000-00805f9b34fb"
 SBC_CODEC = dbus.Byte(0x00)
 SBC_CAPABILITIES = dbus.Array([dbus.Byte(0xff), dbus.Byte(0xff), dbus.Byte(2), dbus.Byte(64)])
-SBC_CONFIGURATION = dbus.Array([dbus.Byte(0x21), dbus.Byte(0x15), dbus.Byte(2), dbus.Byte(32)])
 
 AAC_CODEC = dbus.Byte(0x02)
 AAC_CAPABILITIES = dbus.Array([dbus.Byte(0xC0), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
