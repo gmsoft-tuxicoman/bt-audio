@@ -15,7 +15,7 @@ argparser = argparse.ArgumentParser(description='Send bluetooth audio to alsa ca
 argparser.add_argument('--alsa-device', '-D', dest='alsadev', help='Alsa device')
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
 argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
-argparser.add_argument('--aac', '-A', dest='aac_enabled', help='Enable AAC codec support', default=False, action='store_true')
+#argparser.add_argument('--aac', '-A', dest='aac_enabled', help='Enable AAC codec support', default=False, action='store_true')
 argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
