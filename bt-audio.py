@@ -262,10 +262,14 @@ class MediaTransport():
         self.bus = bus
         self.path = path
         self.pipeline = None
+        self.curVol = 10
         self.logger = logging.getLogger("MediaTransport")
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
         self.logger.debug(path)
+
+        if 'Volume' in changed:
+            self.curVol = changed['Volume']
 
         if not 'State' in changed:
             return
@@ -322,6 +326,7 @@ class MediaTransportSBC(MediaTransport):
 
         source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
         source.set_property("transport", self.path)
+        source.set_property("transport-volume", self.curVol)
 
         jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
         jitterbuffer.set_property("latency", args.buff_len)
