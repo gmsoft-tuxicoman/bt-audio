@@ -15,7 +15,6 @@ argparser = argparse.ArgumentParser(description='Send bluetooth audio to alsa ca
 argparser.add_argument('--alsa-device', '-D', dest='alsadev', help='Alsa device')
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
 argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
-#argparser.add_argument('--aac', '-A', dest='aac_enabled', help='Enable AAC codec support', default=False, action='store_true')
 argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -24,12 +23,6 @@ A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9B34fb"
 A2DP_SERVICE_UUID = "0000110d-0000-1000-8000-00805f9b34fb"
 SBC_CODEC = dbus.Byte(0x00)
 SBC_CAPABILITIES = dbus.Array([dbus.Byte(0xff), dbus.Byte(0xff), dbus.Byte(2), dbus.Byte(64)])
-
-AAC_CODEC = dbus.Byte(0x02)
-AAC_CAPABILITIES = dbus.Array([dbus.Byte(0xC0), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
-#AAC_CAPABILITIES = dbus.Array([dbus.Byte(0x80), dbus.Byte(0xFF), dbus.Byte(0xFC), dbus.Byte(0xFF), dbus.Byte(0xFF), dbus.Byte(0xFF)])
-
-
 
 class Bluez():
     
@@ -162,14 +155,6 @@ class Adapter():
         media.RegisterEndpoint(media_path, properties)
         self.logger.info("MediaEndpoint SBC registered for " + self.path)
 
-    def mediaEndpointRegisterAAC(self):
-        media = dbus.Interface(self.bus.get_object("org.bluez", self.path), "org.bluez.Media1")
-        media_path = '/test/endpoint_aac_' + self.path.split('/')[3]
-        self.mediaEndpointAAC = MediaEndpoint(self.bus, media_path)
-        properties = dbus.Dictionary({ "UUID" : A2DP_SINK_UUID, "Codec" : AAC_CODEC, "DelayReporting" : True, "Capabilities" : AAC_CAPABILITIES })
-        media.RegisterEndpoint(media_path, properties)
-        self.logger.info("MediaEndpoint AAC registered for " + self.path)
-
     def agentRegister(self):
         agent_path = '/test/agent_' + self.path.split('/')[3]
         self.agent = Agent(self.bus, agent_path)
@@ -200,10 +185,8 @@ class Device():
             mediaTransport1 = interface['org.bluez.MediaTransport1']
             if mediaTransport1['Codec'] == SBC_CODEC:
                 self.mediaTransports[obj_name] = MediaTransportSBC(self.bus, path)
-            elif mediaTransport1['Codec'] == AAC_CODEC:
-                self.mediaTransports[obj_name] = MediaTransportAAC(self.bus, path)
             else:
-                self.logger.warn("Unsupported codec : " + str(mediaTransport1['Codec']))
+                self.logger.warn("Unsupported codec : " + str(hex(mediaTransport1['Codec'])))
 
     def _interfaceRemoved(self, path, interface):
         self.logger.debug(path)
@@ -368,61 +351,6 @@ class MediaTransportSBC(MediaTransport):
         self.logger.debug("Created new SBC pipeline")
 
 
-
-class MediaTransportAAC(MediaTransport):
-
-    def __init__(self, bus, path):
-        super().__init__(bus, path)
-        self.logger = logging.getLogger("MediaTransportAAC")
-
-    def initPipeline(self):
-        global args
-
-        self.pipeline = Gst.Pipeline.new("player")
-
-        gst_bus = self.pipeline.get_bus()
-        gst_bus.add_signal_watch()
-        gst_bus.connect("message", self._gst_on_message)
-
-        source = Gst.ElementFactory.make("avdtpsrc", "bluetooth-source")
-        source.set_property("transport", self.path)
-
-        jitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "jitterbuffer")
-        jitterbuffer.set_property("latency", args.buff_len)
-        jitterbuffer.set_property("drop-on-latency", "true")
-
-        depay = Gst.ElementFactory.make("rtpmp4adepay", "depayloader")
-
-        decoder = Gst.ElementFactory.make("faad", "decoder")
-
-        converter = Gst.ElementFactory.make("audioconvert", "converter")
-
-        sink = Gst.ElementFactory.make("alsasink", "alsa-output")
-        if args.alsadev:
-            sink.set_property("device", args.alsadev)
-
-        self.pipeline.add(source)
-        self.pipeline.add(jitterbuffer)
-        self.pipeline.add(depay)
-        self.pipeline.add(decoder)
-        self.pipeline.add(converter)
-        self.pipeline.add(sink)
-
-        link = True
-        link &= source.link(jitterbuffer)
-        link &= jitterbuffer.link(depay)
-        link &= depay.link(decoder)
-        link &= decoder.link(converter)
-        link &= converter.link(sink)
-
-        if not link:
-            self.logger.crit("Failed to link the pipeline")
-            return
-
-
-        self.logger.debug("Created new AAC pipeline")
-
-
 class Rejected(dbus.DBusException):
     _dbus_error_name = "org.bluez.Error.Rejected"
 
@@ -476,10 +404,6 @@ def main():
     adapt.powerSet(True)
     adapt.discoverableSet(True)
     adapt.mediaEndpointRegisterSBC()
-
-
-    if args.aac_enabled:
-        adapt.mediaEndpointRegisterAAC()
 
 
     # Glib main loop
