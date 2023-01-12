@@ -186,7 +186,7 @@ class Device():
             if mediaTransport1['Codec'] == SBC_CODEC:
                 self.mediaTransports[obj_name] = MediaTransportSBC(self.bus, path)
             else:
-                self.logger.warn("Unsupported codec : " + str(hex(mediaTransport1['Codec'])))
+                self.logger.warning("Unsupported codec : " + str(hex(mediaTransport1['Codec'])))
 
     def _interfaceRemoved(self, path, interface):
         self.logger.debug(path)
