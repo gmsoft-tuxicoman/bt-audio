@@ -1,7 +1,7 @@
 # bt-audio
 
 This python script will turn your linux PC into a bluetooth speaker.
-It allows your devices (phone, tablet, etc) to connect without authentication to the PC and play the sound to your alsa card.
+It allows your devices (phone, tablet, etc) to connect without authentication to the PC and play the sound to your alsa card or pulseaudio.
 
 ## Requirements
 * Bluez 5.x

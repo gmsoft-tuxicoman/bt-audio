@@ -16,6 +16,7 @@ argparser.add_argument('--alsa-device', '-D', dest='alsadev', help='Alsa device'
 argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapter', default='hci0')
 argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
 argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
+argparser.add_argument('--pulse', '-p', dest='pulse', help='Send audio to pulseaudio', default=False, action='store_true')
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -323,9 +324,12 @@ class MediaTransportSBC(MediaTransport):
 
         converter = Gst.ElementFactory.make("audioconvert", "converter")
 
-        sink = Gst.ElementFactory.make("alsasink", "alsa-output")
-        if args.alsadev:
-            sink.set_property("device", args.alsadev)
+        if args.pulse:
+            sink = Gst.ElementFactory.make("pulsesink", None)
+        else:
+            sink = Gst.ElementFactory.make("alsasink", "alsa-output")
+            if args.alsadev:
+                sink.set_property("device", args.alsadev)
 
         self.pipeline.add(source)
         self.pipeline.add(jitterbuffer)
