@@ -247,6 +247,7 @@ class MediaTransport():
         self.path = path
         self.pipeline = None
         self.curVol = 10
+        self.curVolNorm = self.curVol/127
         self.logger = logging.getLogger("MediaTransport")
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
@@ -254,6 +255,9 @@ class MediaTransport():
 
         if 'Volume' in changed:
             self.curVol = changed['Volume']
+            self.curVolNorm = self.curVol/127
+            if self.pipeline:
+                self.pipeline.get_by_name("volume-control").set_property("volume", self.curVolNorm)
 
         if not 'State' in changed:
             return
@@ -324,6 +328,9 @@ class MediaTransportSBC(MediaTransport):
 
         converter = Gst.ElementFactory.make("audioconvert", "converter")
 
+        volume = Gst.ElementFactory.make("volume", "volume-control")
+        volume.set_property("volume", self.curVolNorm)
+
         if args.pulse:
             sink = Gst.ElementFactory.make("pulsesink", None)
         else:
@@ -337,6 +344,7 @@ class MediaTransportSBC(MediaTransport):
         self.pipeline.add(parse)
         self.pipeline.add(decoder)
         self.pipeline.add(converter)
+        self.pipeline.add(volume)
         self.pipeline.add(sink)
 
 
@@ -346,7 +354,8 @@ class MediaTransportSBC(MediaTransport):
         link &= depay.link(parse)
         link &= parse.link(decoder)
         link &= decoder.link(converter)
-        link &= converter.link(sink)
+        link &= converter.link(volume)
+        link &= volume.link(sink)
 
         if not link:
             self.logger.critical("Failed to link the pipeline")
