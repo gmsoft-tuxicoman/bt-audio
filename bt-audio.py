@@ -17,6 +17,7 @@ argparser.add_argument('--adapter', '-a', dest='adapter', help='Bluetooth adapte
 argparser.add_argument('--buffer-length', '-b', dest='buff_len', help='Length of the jitter buffer', default=50)
 argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 argparser.add_argument('--pulse', '-p', dest='pulse', help='Send audio to pulseaudio', default=False, action='store_true')
+argparser.add_argument('--volcon', '-v', dest='volcon', help='Volume Control output based on BT client volume level', default=False, action='store_true')
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -249,15 +250,26 @@ class MediaTransport():
         self.curVol = 10
         self.curVolNorm = self.curVol/127
         self.logger = logging.getLogger("MediaTransport")
+        global args
+        if args.volcon:
+            if args.pulse:
+                self.volConPipeline = "pulse-output"
+            else:
+                self.volConPipeline = "volume-control"
+        else:
+            self.volConPipeline = None
+
 
     def _propertiesChanged(self, interface, changed, invalidated, path):
+
+
         self.logger.debug(path)
 
         if 'Volume' in changed:
             self.curVol = changed['Volume']
             self.curVolNorm = self.curVol/127
-            if self.pipeline:
-                self.pipeline.get_by_name("volume-control").set_property("volume", self.curVolNorm)
+            if self.pipeline and self.volConPipeline:
+                self.pipeline.get_by_name(self.volConPipeline).set_property("volume", self.curVolNorm)
 
         if not 'State' in changed:
             return
@@ -328,11 +340,12 @@ class MediaTransportSBC(MediaTransport):
 
         converter = Gst.ElementFactory.make("audioconvert", "converter")
 
-        volume = Gst.ElementFactory.make("volume", "volume-control")
-        volume.set_property("volume", self.curVolNorm)
+        if args.volcon and not args.pulse:
+            volume = Gst.ElementFactory.make("volume", "volume-control")
+            volume.set_property("volume", self.curVolNorm)
 
         if args.pulse:
-            sink = Gst.ElementFactory.make("pulsesink", None)
+            sink = Gst.ElementFactory.make("pulsesink", "pulse-output")
         else:
             sink = Gst.ElementFactory.make("alsasink", "alsa-output")
             if args.alsadev:
@@ -344,7 +357,8 @@ class MediaTransportSBC(MediaTransport):
         self.pipeline.add(parse)
         self.pipeline.add(decoder)
         self.pipeline.add(converter)
-        self.pipeline.add(volume)
+        if args.volcon and not args.pulse:
+            self.pipeline.add(volume)
         self.pipeline.add(sink)
 
 
@@ -354,8 +368,11 @@ class MediaTransportSBC(MediaTransport):
         link &= depay.link(parse)
         link &= parse.link(decoder)
         link &= decoder.link(converter)
-        link &= converter.link(volume)
-        link &= volume.link(sink)
+        if args.volcon and not args.pulse:
+            link &= converter.link(volume)
+            link &= volume.link(sink)
+        else:
+            link &= converter.link(sink)
 
         if not link:
             self.logger.critical("Failed to link the pipeline")
