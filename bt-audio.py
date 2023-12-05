@@ -394,7 +394,7 @@ class Agent(dbus.service.Object):
 
 def sanity_checks():
 
-    if not hasattr(Gst._overrides_module, "ElementFactory"):
+    if not Gst.ElementFactory:
         raise Exception("gst=python module does not seem to be installed")
 
     pipeline = Gst.Pipeline.new("sanity_check")
