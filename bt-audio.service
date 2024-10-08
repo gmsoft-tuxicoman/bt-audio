@@ -1,0 +1,15 @@
+[Unit]
+Description=Utility to use Linux as a bluetooth speaker
+Documentation=https://github.com/gmsoft-tuxicoman/bt-audio
+After=network-online.target bluetooth.target
+
+[Service]
+Type=simple
+# User=root
+
+WorkingDirectory=/usr/bin/bt-audio
+ExecStart=/usr/bin/bt-audio/run.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
